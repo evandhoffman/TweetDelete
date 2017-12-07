@@ -4,7 +4,7 @@ from flask import Flask
 from flask import g, session, request, url_for, flash
 from flask import redirect, render_template
 from flask_oauthlib.client import OAuth
-import json
+import json, datetime
 
 # Tokens are generated at https://apps.twitter.com/
 with open('config.json') as cf:
@@ -16,6 +16,8 @@ app.debug = True
 app.secret_key = 'development'
 
 oauth = OAuth(app)
+
+max_tweets_to_process = 1000
 
 
 twitter = oauth.remote_app(
@@ -47,12 +49,38 @@ def before_request():
 def index():
     tweets = None
     if g.user is not None:
-        resp = twitter.request('statuses/home_timeline.json')
-        if resp.status == 200:
-            tweets = resp.data
-        else:
-            flash('Unable to load tweets from Twitter.')
+        processed_count = 0
+        max_id = 0 
+        while (processed_count < max_tweets_to_process ):
+            if (max_id > 1):
+                req = "statuses/user_timeline.json?count=200&max_id=%d" % max_id
+            else:
+                req = "statuses/user_timeline.json?count=200"
+            resp = twitter.request(req)
+            if resp.status == 200:
+                tweets = resp.data
+                for tweet in tweets:
+                    if (max_id == 0 or tweet['id'] < max_id):
+                        max_id = tweet['id']
+                tweets = delete_tweets(tweets, 1)
+                processed_count += len(tweets)
+                print ("processed %d tweets so far, max_id is now %d" % (processed_count, max_id))
+            else:
+                flash('Unable to load tweets from Twitter.')
+                break
     return render_template('index.html', tweets=tweets)
+
+def delete_tweets(tweets, threshold_days=365 ):
+    filtered_tweets = []
+    now =  datetime.datetime.now()
+
+    for tweet in tweets:
+        ts = datetime.datetime.strptime(tweet['created_at'],'%a %b %d %H:%M:%S +0000 %Y')
+        age = now - ts
+        age_days = divmod(age.total_seconds(), 86400)[0]
+        if (age_days > threshold_days):
+            filtered_tweets.append(tweet)
+    return filtered_tweets
 
 
 @app.route('/tweet', methods=['POST'])
@@ -76,7 +104,6 @@ def tweet():
     else:
         flash('Successfully tweeted your tweet (ID: #%s)' % resp.data['id'])
     return redirect(url_for('index'))
-
 
 @app.route('/login')
 def login():
