@@ -60,23 +60,31 @@ def index():
                 req = "statuses/user_timeline.json?count=200&max_id=%d" % max_id
             else:
                 req = "statuses/user_timeline.json?count=200"
-            print "Making request: %s" % req
+            print ("Making request: %s" % req)
             resp = twitter.request(req)
             if resp.status == 200:
                 tweets = resp.data
                 print ("Got %d more tweets from Twitter" % len(tweets))
-                for tweet in tweets:
-                    evaluated_count += 1
-                    if (max_id == 0 or tweet['id'] < max_id):
-                        max_id = tweet['id']-1
-                tweets_to_delete = delete_tweets(tweets, 365)
-                for tweet in tweets_to_delete:
-                    deleted_count += 1
-                    print ("Gonna delete Tweet #%d with timestamp %s" % (tweet['id'], tweet['created_at']))
-                    twitter.post("statuses/destroy/%d" % tweet['id'])
-                    print ("DELETED POST %d" % tweet['id'])
-                print ("Looked at %d tweets so far, deleted %d, max_id is now %d" % (evaluated_count, deleted_count, max_id))
-                time.sleep(1)
+                if (len(tweets) == 0):
+                    print ("Sleeping since we got nothing back from Twitter")
+                    time.sleep(15)
+                else:
+                    for tweet in tweets:
+                        evaluated_count += 1
+                        if (max_id == 0 or tweet['id'] < max_id):
+                            max_id = tweet['id']-1
+                            print ("max_id is now %d" % max_id)
+                    tweets_to_delete = delete_tweets(tweets, 90)
+                    for tweet in tweets_to_delete:
+                        if not (tweet['retweeted']):
+                            deleted_count += 1
+                            print ("Gonna delete Tweet #%d with timestamp %s" % (tweet['id'], tweet['created_at']))
+                            r = twitter.post("statuses/destroy/%d" % tweet['id'], data={ 
+                                    "id": tweet['id']
+                                })
+                            print ("Deleted #%d, response code: %d" % (tweet['id'], r.status))
+                    print ("Looked at %d tweets so far, deleted %d, max_id is now %d" % (evaluated_count, deleted_count, max_id))
+                    time.sleep(1)
             else:
                 flash('Unable to load tweets from Twitter.')
                 break
