@@ -5,6 +5,7 @@ from flask import g, session, request, url_for, flash
 from flask import redirect, render_template
 from flask_oauthlib.client import OAuth
 import json, datetime, time
+import syslog
 
 # Tokens are generated at https://apps.twitter.com/
 with open('config.json') as cf:
@@ -19,6 +20,9 @@ oauth = OAuth(app)
 
 max_tweets_to_process = 5000
 
+sleep_seconds = 60
+
+days_to_keep = 7
 
 twitter = oauth.remote_app(
     'twitter',
@@ -55,39 +59,52 @@ def index():
         batch = 0
         while (deleted_count < max_tweets_to_process ):
             batch += 1
-            print ("Currently working on batch # %d" % batch)
+            syslog.syslog ("Currently working on batch # %d" % batch)
             if (max_id > 0):
-                req = "statuses/user_timeline.json?count=200&max_id=%d" % max_id
+                req = "statuses/user_timeline.json?count=200&max_id=%d&include_rts=true" % max_id
             else:
-                req = "statuses/user_timeline.json?count=200"
-            print ("Making request: %s" % req)
+                req = "statuses/user_timeline.json?count=200&include_rts=true"
+            syslog.syslog ("Making request: %s" % req)
             resp = twitter.request(req)
             if resp.status == 200:
                 tweets = resp.data
-                print ("Got %d more tweets from Twitter" % len(tweets))
+                syslog.syslog ("Got %d more tweets from Twitter" % len(tweets))
                 if (len(tweets) == 0):
-                    print ("Sleeping since we got nothing back from Twitter")
-                    time.sleep(15)
+                    syslog.syslog ("Sleeping for %d seconds since we got nothing back from Twitter" % sleep_seconds)
+                    time.sleep(sleep_seconds)
                 else:
                     for tweet in tweets:
                         evaluated_count += 1
                         if (max_id == 0 or tweet['id'] < max_id):
                             max_id = tweet['id']-1
-                            print ("max_id is now %d" % max_id)
-                    tweets_to_delete = delete_tweets(tweets, 90)
+                            syslog.syslog ("max_id is now %d" % max_id)
+                    tweets_to_delete = delete_tweets(tweets, days_to_keep)
                     for tweet in tweets_to_delete:
-                        if not (tweet['retweeted']):
+                        if (tweet['retweeted']):
+#                            syslog.syslog("Skipping tweet %d as it is a retweet" % tweet['id'])
+                            syslog.syslog("Un-retweeting tweet %d" % tweet['id'])
+                            r = twitter.post("statuses/unretweet/%d.json" % tweet['id'], data={ 
+                                    "id": tweet['id']
+                                })
+                            if (r.status < 400):
+                                syslog.syslog ("Unretweeted tweet #%d, response code: %d" % (tweet['id'], r.status))
+                            else:
+                                syslog.syslog ("Bad status returned for tweet %d, code: %d, data: %s" % (tweet['id'], r.status, r.data))
+                                return;
+
+                       
+                        else: 
                             deleted_count += 1
-                            print ("Gonna delete Tweet #%d with timestamp %s" % (tweet['id'], tweet['created_at']))
+                            syslog.syslog ("About to delete Tweet #%d with timestamp %s" % (tweet['id'], tweet['created_at']))
                             r = twitter.post("statuses/destroy/%d.json" % tweet['id'], data={ 
                                     "id": tweet['id']
                                 })
                             if (r.status < 400):
-                                print ("Deleted #%d, response code: %d" % (tweet['id'], r.status))
+                                syslog.syslog ("Deleted tweet #%d, response code: %d" % (tweet['id'], r.status))
                             else:
-                                print ("Bad status returned for tweet %d, code: %d, data: %s" % (tweet['id'], r.status, r.data))
+                                syslog.syslog ("Bad status returned for tweet %d, code: %d, data: %s" % (tweet['id'], r.status, r.data))
                                 return;
-                    print ("Looked at %d tweets so far, deleted %d, max_id is now %d" % (evaluated_count, deleted_count, max_id))
+                    syslog.syslog ("Looked at %d tweets so far, deleted %d, max_id is now %d" % (evaluated_count, deleted_count, max_id))
                     time.sleep(1)
             else:
                 flash('Unable to load tweets from Twitter.')
@@ -105,7 +122,7 @@ def delete_tweets(tweets, threshold_days=365 ):
         if (age_days > threshold_days):
             filtered_tweets.append(tweet)
         else: 
-            print ("Skipping Tweet #%d with timestamp %s" % (tweet['id'], tweet['created_at']))
+            syslog.syslog ("Skipping Tweet #%d with timestamp %s" % (tweet['id'], tweet['created_at']))
     return filtered_tweets
 
 
