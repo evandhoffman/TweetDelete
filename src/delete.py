@@ -79,10 +79,14 @@ def index():
                         if not (tweet['retweeted']):
                             deleted_count += 1
                             print ("Gonna delete Tweet #%d with timestamp %s" % (tweet['id'], tweet['created_at']))
-                            r = twitter.post("statuses/destroy/%d" % tweet['id'], data={ 
+                            r = twitter.post("statuses/destroy/%d.json" % tweet['id'], data={ 
                                     "id": tweet['id']
                                 })
-                            print ("Deleted #%d, response code: %d" % (tweet['id'], r.status))
+                            if (r.status < 400):
+                                print ("Deleted #%d, response code: %d" % (tweet['id'], r.status))
+                            else:
+                                print ("Bad status returned for tweet %d, code: %d, data: %s" % (tweet['id'], r.status, r.data))
+                                return;
                     print ("Looked at %d tweets so far, deleted %d, max_id is now %d" % (evaluated_count, deleted_count, max_id))
                     time.sleep(1)
             else:
@@ -150,4 +154,4 @@ def oauthorized():
 
 
 if __name__ == '__main__':
-    app.run()
+    app.run(host='0.0.0.0')
