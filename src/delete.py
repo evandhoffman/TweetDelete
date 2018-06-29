@@ -18,11 +18,11 @@ app.secret_key = 'development'
 
 oauth = OAuth(app)
 
-max_tweets_to_process = 5000
+max_tweets_to_process = 1000
 
 sleep_seconds = 60
 
-days_to_keep = 7
+days_to_keep = 5
 
 twitter = oauth.remote_app(
     'twitter',
