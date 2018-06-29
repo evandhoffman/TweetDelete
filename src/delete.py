@@ -20,9 +20,9 @@ oauth = OAuth(app)
 
 max_tweets_to_process = 5000
 
-sleep_seconds = 60
+sleep_seconds = 300
 
-days_to_keep = 7
+days_to_keep = 5
 
 twitter = oauth.remote_app(
     'twitter',
@@ -75,9 +75,10 @@ def index():
                 else:
                     for tweet in tweets:
                         evaluated_count += 1
-                        if (max_id == 0 or tweet['id'] < max_id):
-                            max_id = tweet['id']-1
-                            syslog.syslog ("max_id is now %d" % max_id)
+                        if (not tweet['retweeted']):
+                            if (max_id == 0 or tweet['id'] < max_id):
+                                max_id = tweet['id']-1
+                                syslog.syslog ("max_id is now %d" % max_id)
                     tweets_to_delete = delete_tweets(tweets, days_to_keep)
                     for tweet in tweets_to_delete:
                         if (tweet['retweeted']):
