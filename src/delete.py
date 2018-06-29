@@ -18,7 +18,7 @@ app.secret_key = 'development'
 
 oauth = OAuth(app)
 
-max_tweets_to_process = 5000
+max_tweets_to_process = 1000
 
 sleep_seconds = 300
 
