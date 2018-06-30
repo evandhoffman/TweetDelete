@@ -1,5 +1,6 @@
 # coding: utf-8
 
+import os
 from flask import Flask
 from flask import g, session, request, url_for, flash
 from flask import redirect, render_template
@@ -8,8 +9,6 @@ import json, datetime, time
 import syslog
 
 # Tokens are generated at https://apps.twitter.com/
-with open('config.json') as cf:
-    config = json.load(cf)
 
 
 app = Flask(__name__)
@@ -26,8 +25,8 @@ days_to_keep = 5
 
 twitter = oauth.remote_app(
     'twitter',
-    consumer_key=config['consumer_key'],
-    consumer_secret=config['consumer_secret'],
+    consumer_key=os.environ.get('TWITTER_CONSUMER_KEY'),
+    consumer_secret=os.environ.get('TWITTER_CONSUMER_SECRET'),
     base_url='https://api.twitter.com/1.1/',
     request_token_url='https://api.twitter.com/oauth/request_token',
     access_token_url='https://api.twitter.com/oauth/access_token',
@@ -127,27 +126,6 @@ def delete_tweets(tweets, threshold_days=365 ):
     return filtered_tweets
 
 
-@app.route('/tweet', methods=['POST'])
-def tweet():
-    if g.user is None:
-        return redirect(url_for('login', next=request.url))
-    status = request.form['tweet']
-    if not status:
-        return redirect(url_for('index'))
-    resp = twitter.post('statuses/update.json', data={
-        'status': status
-    })
-
-    if resp.status == 403:
-        flash("Error: #%d, %s " % (
-            resp.data.get('errors')[0].get('code'),
-            resp.data.get('errors')[0].get('message'))
-        )
-    elif resp.status == 401:
-        flash('Authorization error with Twitter.')
-    else:
-        flash('Successfully tweeted your tweet (ID: #%s)' % resp.data['id'])
-    return redirect(url_for('index'))
 
 @app.route('/login')
 def login():
