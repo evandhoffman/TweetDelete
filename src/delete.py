@@ -25,11 +25,13 @@ formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(messag
 ch.setFormatter(formatter)
 log.addHandler(ch)
 
-max_tweets_to_process = os.getenv('TWEETS_TO_PROCESS', 1000)
+max_tweets_to_process = int(os.getenv('TWEETS_TO_PROCESS', 100))
 
-sleep_seconds = os.getenv('TWITTER_SLEEP_SECONDS', 300)
+sleep_seconds = int(os.getenv('TWITTER_SLEEP_SECONDS', 120))
 
-days_to_keep = os.getenv('TWITTER_KEEP_DAYS', 5) 
+days_to_keep = int(os.getenv('TWITTER_KEEP_DAYS', 30)) 
+
+skipped_count = 0
 
 twitter = oauth.remote_app(
     'twitter',
@@ -63,6 +65,7 @@ def index():
     if g.user is not None:
         deleted_count = 0
         evaluated_count = 0
+        unretweet_count = 0
         max_id = 0 
         batch = 0
         while (deleted_count < max_tweets_to_process ):
@@ -70,6 +73,7 @@ def index():
             log.info ("Currently working on batch # %d" % batch)
             if (max_id > 0):
                 req = "statuses/user_timeline.json?count=200&max_id=%d&include_rts=true" % max_id
+                max_id = max_id - 200
             else:
                 req = "statuses/user_timeline.json?count=200&include_rts=true"
             log.info ("Making request: %s" % req)
@@ -82,47 +86,50 @@ def index():
                     time.sleep(sleep_seconds)
                 else:
                     for tweet in tweets:
+#                        log.debug("Tweet: %s" % tweet)
                         evaluated_count += 1
-                        if (not tweet['retweeted']):
-                            if (max_id == 0 or tweet['id'] < max_id):
-                                max_id = tweet['id']-1
-                                log.info ("max_id is now %d" % max_id)
-                    tweets_to_delete = delete_tweets(tweets, days_to_keep)
+#                        if (not tweet['retweeted']): # Don't set max_id based on retweet ids
+                        if (max_id == 0 or tweet['id'] < max_id):
+                            max_id = tweet['id']-1
+                    log.info ("max_id is now %d" % max_id)
+                    tweets_to_delete = filter_tweets(tweets, days_to_keep)
                     for tweet in tweets_to_delete:
                         if (tweet['retweeted']):
-#                            log.info("Skipping tweet %d as it is a retweet" % tweet['id'])
-                            log.info("Un-retweeting tweet %d" % tweet['id'])
+                            log.debug("Un-retweeting tweet %d" % tweet['id'])
                             r = twitter.post("statuses/unretweet/%d.json" % tweet['id'], data={ 
                                     "id": tweet['id']
                                 })
                             if (r.status < 400):
                                 log.info ("Unretweeted tweet #%d, response code: %d" % (tweet['id'], r.status))
+                                unretweet_count += 1
                             else:
                                 log.info ("Bad status returned for tweet %d, code: %d, data: %s" % (tweet['id'], r.status, r.data))
                                 return;
 
                        
                         else: 
-                            deleted_count += 1
-                            log.info ("About to delete Tweet #%d with timestamp %s" % (tweet['id'], tweet['created_at']))
+                            log.debug ("About to delete Tweet #%d with timestamp %s" % (tweet['id'], tweet['created_at']))
                             r = twitter.post("statuses/destroy/%d.json" % tweet['id'], data={ 
                                     "id": tweet['id']
                                 })
                             if (r.status < 400):
                                 log.info ("Deleted tweet #%d, response code: %d" % (tweet['id'], r.status))
+                                deleted_count += 1
                             else:
                                 log.info ("Bad status returned for tweet %d, code: %d, data: %s" % (tweet['id'], r.status, r.data))
                                 return;
-                    log.info ("Looked at %d tweets so far, deleted %d, max_id is now %d" % (evaluated_count, deleted_count, max_id))
-                    time.sleep(1)
+                    log.info ("Looked at %d tweets so far, deleted %d, un-retweeted %d, skipped %d, max_id is now %d" % (evaluated_count, deleted_count, unretweet_count, skipped_count,  max_id))
+                    time.sleep(2)
             else:
                 flash('Unable to load tweets from Twitter.')
                 break
     return render_template('index.html', tweets=tweets)
 
-def delete_tweets(tweets, threshold_days=365 ):
+def filter_tweets(tweets, threshold_days=365 ):
     filtered_tweets = []
     now =  datetime.datetime.now()
+
+    global skipped_count
 
     for tweet in tweets:
         ts = datetime.datetime.strptime(tweet['created_at'],'%a %b %d %H:%M:%S +0000 %Y')
@@ -130,8 +137,9 @@ def delete_tweets(tweets, threshold_days=365 ):
         age_days = divmod(age.total_seconds(), 86400)[0]
         if (age_days > threshold_days):
             filtered_tweets.append(tweet)
-        else: 
-            log.info ("Skipping Tweet #%d with timestamp %s" % (tweet['id'], tweet['created_at']))
+        else:
+            skipped_count += 1
+            log.debug ("Skipping Tweet #%d with timestamp %s" % (tweet['id'], tweet['created_at']))
     return filtered_tweets
 
 
